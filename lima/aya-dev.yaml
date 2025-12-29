@@ -1,0 +1,142 @@
+# Lima VM configuration for Aya-rs eBPF development
+# Usage: limactl create --name=aya-dev lima/aya-dev.yaml
+#        limactl start aya-dev
+#        limactl shell aya-dev
+
+# VM Resources
+cpus: 4
+memory: "8GiB"
+disk: "50GiB"
+
+# Use Ubuntu 24.04 LTS for excellent eBPF/BTF support
+images:
+  # For Apple Silicon (M1/M2/M3)
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+    digest: "sha256:5ecab49ff44f8e44954752f9e51842ae8eb6d9f8a5d2f4fc9c5deb00269aa26f"
+  # For Intel Macs
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+    digest: "sha256:d2377667ea95222330ca2287817403c85178dad397e9fed768a9b4aec79d2a7f"
+
+# SSH configuration
+ssh:
+  localPort: 0  # Automatically assign a free port
+  loadDotSSHPubKeys: true  # Load ~/.ssh/*.pub keys for authentication
+  forwardAgent: true  # Forward SSH agent for git operations
+
+# Mount the project directory into the VM
+mounts:
+  - location: "~"
+    writable: true
+  - location: "/tmp/lima"
+    writable: true
+
+# Containerd is not needed for eBPF development
+containerd:
+  system: false
+  user: false
+
+# Provision script to set up eBPF development environment
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+
+      # Update package lists
+      apt-get update
+
+      # Install essential build tools
+      apt-get install -y \
+        build-essential \
+        pkg-config \
+        libssl-dev \
+        libelf-dev \
+        zlib1g-dev
+
+      # Install eBPF/BPF development tools
+      apt-get install -y \
+        linux-headers-$(uname -r) \
+        linux-tools-common \
+        linux-tools-$(uname -r) \
+        libbpf-dev \
+        bpftool
+
+      # Install LLVM and Clang (for BPF compilation)
+      apt-get install -y \
+        llvm \
+        clang \
+        libclang-dev
+
+      # Install debugging and tracing tools
+      apt-get install -y \
+        trace-cmd \
+        strace \
+        gdb \
+        gdbserver
+
+      # Install networking tools for XDP testing
+      apt-get install -y \
+        iproute2 \
+        tcpdump \
+        iperf3 \
+        ethtool
+
+      # Clean up
+      apt-get autoremove -y
+      apt-get clean
+
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+
+      # Install Rust via rustup
+      if ! command -v rustup &> /dev/null; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
+      fi
+
+      # Install nightly toolchain and required components
+      rustup install nightly
+      rustup component add rust-src --toolchain nightly
+
+      # Install bpf-linker
+      cargo install bpf-linker
+
+      # Install cargo-generate for Aya templates
+      cargo install cargo-generate
+
+      # Add cargo to PATH in .bashrc if not already present
+      if ! grep -q 'cargo/env' ~/.bashrc; then
+        echo 'source "$HOME/.cargo/env"' >> ~/.bashrc
+      fi
+
+# Port forwarding for debugging
+portForwards:
+  - guestPort: 2345  # gdbserver default port
+    hostIP: "127.0.0.1"
+
+# Message displayed after VM starts
+message: |
+  Aya-rs eBPF Development VM is ready!
+
+  To connect via SSH:
+    limactl shell aya-dev
+
+  Or use SSH directly:
+    ssh -F ~/.lima/aya-dev/ssh.config lima-aya-dev
+
+  Your home directory is mounted at the same path inside the VM.
+  Project files are accessible without copying.
+
+  Quick start:
+    cd ~/your-project
+    cargo xtask build-ebpf
+    sudo ./target/x86_64-unknown-linux-musl/release/your-program
+
+  Useful commands inside the VM:
+    sudo bpftool prog list          # List loaded BPF programs
+    sudo bpftool map list           # List BPF maps
+    sudo cat /sys/kernel/debug/tracing/trace_pipe  # View BPF debug output

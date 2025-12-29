@@ -308,9 +308,126 @@ cargo build --target aarch64-unknown-linux-musl
 
 Since eBPF programs can only run on Linux, you need a Linux environment for testing.
 
-### Option 1: Linux Virtual Machine
+### Option 1: Lima VM (Recommended)
 
-#### Using UTM (Recommended for Apple Silicon)
+[Lima](https://lima-vm.io/) is a lightweight Linux VM solution for macOS that provides seamless file sharing and SSH access. This repository includes a pre-configured Lima VM optimized for eBPF development.
+
+#### Install Lima
+
+```bash
+brew install lima
+```
+
+#### Create the Aya Development VM
+
+Use the provided configuration file to create a VM with:
+- **4 CPU cores**
+- **8GB RAM**
+- **50GiB storage**
+- **Ubuntu 24.04 LTS** (excellent eBPF/BTF support)
+- Pre-installed Rust toolchain, bpf-linker, and eBPF development tools
+
+```bash
+# Create and start the VM (from the project root)
+limactl create --name=aya-dev lima/aya-dev.yaml
+limactl start aya-dev
+```
+
+The first startup takes several minutes as it provisions the VM with all required tools.
+
+#### Connect to the VM
+
+**Option A: Lima Shell (Recommended)**
+
+```bash
+limactl shell aya-dev
+```
+
+**Option B: Direct SSH**
+
+```bash
+# Get the SSH command
+limactl show-ssh aya-dev
+
+# Or use the generated SSH config
+ssh -F ~/.lima/aya-dev/ssh.config lima-aya-dev
+```
+
+**Option C: SSH from any terminal/IDE**
+
+Find the SSH port and connect:
+
+```bash
+# Show SSH configuration details
+limactl show-ssh --format=config aya-dev
+
+# Example output - use the port shown
+# Host lima-aya-dev
+#   HostName 127.0.0.1
+#   Port 60022
+#   User <your-username>
+#   IdentityFile ~/.lima/_config/user
+
+# Connect using standard SSH
+ssh -p <port> -i ~/.lima/_config/user <your-username>@127.0.0.1
+```
+
+#### File Sharing
+
+Your macOS home directory is automatically mounted in the VM at the same path. No file copying needed!
+
+```bash
+# On macOS
+cd ~/Projects/my-ebpf-project
+
+# In the Lima VM - same path works
+limactl shell aya-dev
+cd ~/Projects/my-ebpf-project
+cargo xtask build-ebpf
+sudo ./target/debug/my-ebpf-project
+```
+
+#### VM Management Commands
+
+```bash
+# Start the VM
+limactl start aya-dev
+
+# Stop the VM
+limactl stop aya-dev
+
+# Restart the VM
+limactl stop aya-dev && limactl start aya-dev
+
+# Delete the VM (removes all data)
+limactl delete aya-dev
+
+# List all VMs
+limactl list
+
+# Show VM info
+limactl info aya-dev
+```
+
+#### Configure RustRover for Lima SSH
+
+1. Go to **RustRover** → **Settings** → **Tools** → **SSH Configurations**
+2. Click `+` to add a new configuration:
+   - **Host**: `127.0.0.1`
+   - **Port**: Run `limactl show-ssh aya-dev` to get the port
+   - **User**: Your macOS username
+   - **Authentication**: Key pair
+   - **Private key**: `~/.lima/_config/user`
+3. Test the connection
+
+For remote development:
+1. Go to **File** → **Remote Development** → **SSH**
+2. Select your Lima SSH configuration
+3. Choose the project directory (same path as on macOS)
+
+### Option 2: UTM (GUI-based VM)
+
+For users who prefer a graphical VM interface:
 
 1. Download [UTM](https://mac.getutm.app/)
 2. Download a Linux ISO (Ubuntu 22.04 or later recommended)
@@ -319,13 +436,13 @@ Since eBPF programs can only run on Linux, you need a Linux environment for test
    - 20GB storage
    - Shared folder enabled for easy file transfer
 
-#### Using Parallels Desktop
+### Option 3: Parallels Desktop
 
 1. Install Parallels Desktop
 2. Create a new Linux VM (Ubuntu recommended)
 3. Enable shared folders
 
-### Option 2: Remote Linux Machine
+### Option 4: Remote Linux Machine
 
 Use a cloud instance or remote Linux server:
 
@@ -335,7 +452,7 @@ Use a cloud instance or remote Linux server:
    - Set up SSH connection
    - Configure deployment path
 
-### Option 3: Docker with Linux Container
+### Option 5: Docker with Linux Container
 
 ```bash
 # Create a Dockerfile for testing
@@ -356,15 +473,15 @@ EOF
 # This is only useful for compilation testing
 ```
 
-### Deploying to Linux
+### Deploying to Linux (Non-Lima)
 
-1. Copy your built binary to the Linux system:
+If not using Lima (which has automatic file sharing), copy your built binary:
 
 ```bash
 scp target/x86_64-unknown-linux-musl/release/my-ebpf-project user@linux-host:/tmp/
 ```
 
-2. On the Linux system, run with appropriate privileges:
+On the Linux system, run with appropriate privileges:
 
 ```bash
 sudo /tmp/my-ebpf-project
@@ -462,6 +579,59 @@ If not found, reinstall:
 brew reinstall filosottile/musl-cross/musl-cross
 ```
 
+### Lima VM Issues
+
+#### VM fails to start
+
+```bash
+# Check Lima logs
+limactl info aya-dev
+cat ~/.lima/aya-dev/ha.stderr.log
+
+# Try recreating the VM
+limactl delete aya-dev
+limactl create --name=aya-dev lima/aya-dev.yaml
+limactl start aya-dev
+```
+
+#### SSH connection refused
+
+```bash
+# Verify VM is running
+limactl list
+
+# Check if SSH is ready
+limactl show-ssh aya-dev
+
+# Wait for provisioning to complete (check cloud-init status in VM)
+limactl shell aya-dev -- cloud-init status --wait
+```
+
+#### Rust/cargo not found in VM
+
+The provisioning script runs as the user. If Rust is missing:
+
+```bash
+limactl shell aya-dev
+
+# Re-run Rust installation
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+rustup install nightly
+rustup component add rust-src --toolchain nightly
+cargo install bpf-linker
+```
+
+#### File mounts not working
+
+```bash
+# Verify mounts
+limactl shell aya-dev -- mount | grep virtiofs
+
+# Check if the directory exists on macOS
+ls -la ~/Projects/my-ebpf-project
+```
+
 ### RustRover-Specific Issues
 
 #### Rust Analyzer not working
@@ -498,12 +668,58 @@ sudo ./target/x86_64-unknown-linux-musl/release/my-ebpf-project
 sudo bpftool prog list
 ```
 
+### Lima VM Commands
+
+```bash
+# Create the VM (first time only)
+limactl create --name=aya-dev lima/aya-dev.yaml
+
+# Start the VM
+limactl start aya-dev
+
+# Connect to the VM
+limactl shell aya-dev
+
+# Stop the VM
+limactl stop aya-dev
+
+# Get SSH connection details
+limactl show-ssh aya-dev
+limactl show-ssh --format=config aya-dev
+
+# Check VM status
+limactl list
+
+# Delete the VM
+limactl delete aya-dev
+```
+
+### Complete Workflow Example
+
+```bash
+# 1. On macOS - Build the eBPF program
+cd ~/Projects/my-ebpf-project
+cargo xtask build-ebpf --release
+
+# 2. Start Lima VM (if not running)
+limactl start aya-dev
+
+# 3. Connect to VM and run
+limactl shell aya-dev
+cd ~/Projects/my-ebpf-project
+sudo ./target/debug/my-ebpf-project
+
+# 4. In another terminal, view eBPF logs
+limactl shell aya-dev -- sudo cat /sys/kernel/debug/tracing/trace_pipe
+```
+
 ### Useful Resources
 
 - [Aya Book](https://aya-rs.dev/book/) - Official Aya documentation
 - [Aya GitHub](https://github.com/aya-rs/aya) - Source code and examples
 - [eBPF.io](https://ebpf.io/) - General eBPF resources
 - [RustRover Documentation](https://www.jetbrains.com/help/rust/) - IDE documentation
+- [Lima Documentation](https://lima-vm.io/) - Lima VM for macOS
 
 ## Example: Simple XDP Program
 
