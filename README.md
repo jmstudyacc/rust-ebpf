@@ -304,21 +304,17 @@ cargo build --target aarch64-unknown-linux-musl
 - Command: `build --target x86_64-unknown-linux-musl`
 - Working directory: `$ProjectFileDir$`
 
-## Step 7: Testing on Linux
+## Step 7: Testing on Linux with Lima VM
 
-Since eBPF programs can only run on Linux, you need a Linux environment for testing.
+Since eBPF programs can only run on Linux, you need a Linux environment for testing. This project uses [Lima](https://lima-vm.io/), a lightweight Linux VM solution for macOS that provides seamless file sharing and SSH access.
 
-### Option 1: Lima VM (Recommended)
-
-[Lima](https://lima-vm.io/) is a lightweight Linux VM solution for macOS that provides seamless file sharing and SSH access. This repository includes a pre-configured Lima VM optimized for eBPF development.
-
-#### Install Lima
+### Install Lima
 
 ```bash
 brew install lima
 ```
 
-#### Create the Aya Development VM
+### Create the Aya Development VM
 
 Use the provided configuration file to create a VM with:
 - **4 CPU cores**
@@ -335,7 +331,7 @@ limactl start aya-dev
 
 The first startup takes several minutes as it provisions the VM with all required tools.
 
-#### Connect to the VM
+### Connect to the VM
 
 **Option A: Lima Shell (Recommended)**
 
@@ -343,36 +339,34 @@ The first startup takes several minutes as it provisions the VM with all require
 limactl shell aya-dev
 ```
 
-**Option B: Direct SSH**
+**Option B: Direct SSH (Port 2222)**
+
+The VM is configured with a fixed SSH port for easy access:
 
 ```bash
-# Get the SSH command
-limactl show-ssh aya-dev
-
-# Or use the generated SSH config
-ssh -F ~/.lima/aya-dev/ssh.config lima-aya-dev
+# Connect using SSH on port 2222
+ssh -p 2222 -i ~/.lima/_config/user $USER@127.0.0.1
 ```
 
-**Option C: SSH from any terminal/IDE**
+Or add this to your `~/.ssh/config` for convenience:
 
-Find the SSH port and connect:
+```
+Host aya-dev
+    HostName 127.0.0.1
+    Port 2222
+    User <your-macos-username>
+    IdentityFile ~/.lima/_config/user
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+```
+
+Then simply connect with:
 
 ```bash
-# Show SSH configuration details
-limactl show-ssh --format=config aya-dev
-
-# Example output - use the port shown
-# Host lima-aya-dev
-#   HostName 127.0.0.1
-#   Port 60022
-#   User <your-username>
-#   IdentityFile ~/.lima/_config/user
-
-# Connect using standard SSH
-ssh -p <port> -i ~/.lima/_config/user <your-username>@127.0.0.1
+ssh aya-dev
 ```
 
-#### File Sharing
+### File Sharing
 
 Your macOS home directory is automatically mounted in the VM at the same path. No file copying needed!
 
@@ -387,7 +381,7 @@ cargo xtask build-ebpf
 sudo ./target/debug/my-ebpf-project
 ```
 
-#### VM Management Commands
+### VM Management Commands
 
 ```bash
 # Start the VM
@@ -409,12 +403,12 @@ limactl list
 limactl info aya-dev
 ```
 
-#### Configure RustRover for Lima SSH
+### Configure RustRover for Lima SSH
 
 1. Go to **RustRover** → **Settings** → **Tools** → **SSH Configurations**
 2. Click `+` to add a new configuration:
    - **Host**: `127.0.0.1`
-   - **Port**: Run `limactl show-ssh aya-dev` to get the port
+   - **Port**: `2222`
    - **User**: Your macOS username
    - **Authentication**: Key pair
    - **Private key**: `~/.lima/_config/user`
@@ -424,68 +418,6 @@ For remote development:
 1. Go to **File** → **Remote Development** → **SSH**
 2. Select your Lima SSH configuration
 3. Choose the project directory (same path as on macOS)
-
-### Option 2: UTM (GUI-based VM)
-
-For users who prefer a graphical VM interface:
-
-1. Download [UTM](https://mac.getutm.app/)
-2. Download a Linux ISO (Ubuntu 22.04 or later recommended)
-3. Create a new VM with:
-   - At least 4GB RAM
-   - 20GB storage
-   - Shared folder enabled for easy file transfer
-
-### Option 3: Parallels Desktop
-
-1. Install Parallels Desktop
-2. Create a new Linux VM (Ubuntu recommended)
-3. Enable shared folders
-
-### Option 4: Remote Linux Machine
-
-Use a cloud instance or remote Linux server:
-
-1. Set up SSH access to your Linux machine
-2. Configure RustRover's remote development features:
-   - Go to **File** → **Remote Development**
-   - Set up SSH connection
-   - Configure deployment path
-
-### Option 5: Docker with Linux Container
-
-```bash
-# Create a Dockerfile for testing
-cat > Dockerfile.test << 'EOF'
-FROM ubuntu:22.04
-
-RUN apt-get update && apt-get install -y \
-    linux-headers-generic \
-    libbpf-dev \
-    clang \
-    llvm \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-EOF
-
-# Note: Docker Desktop for Mac cannot run eBPF programs
-# This is only useful for compilation testing
-```
-
-### Deploying to Linux (Non-Lima)
-
-If not using Lima (which has automatic file sharing), copy your built binary:
-
-```bash
-scp target/x86_64-unknown-linux-musl/release/my-ebpf-project user@linux-host:/tmp/
-```
-
-On the Linux system, run with appropriate privileges:
-
-```bash
-sudo /tmp/my-ebpf-project
-```
 
 ## Step 8: Debugging
 
@@ -600,8 +532,8 @@ limactl start aya-dev
 # Verify VM is running
 limactl list
 
-# Check if SSH is ready
-limactl show-ssh aya-dev
+# Test SSH connection on port 2222
+ssh -p 2222 -i ~/.lima/_config/user $USER@127.0.0.1
 
 # Wait for provisioning to complete (check cloud-init status in VM)
 limactl shell aya-dev -- cloud-init status --wait
@@ -677,15 +609,14 @@ limactl create --name=aya-dev lima/aya-dev.yaml
 # Start the VM
 limactl start aya-dev
 
-# Connect to the VM
+# Connect to the VM (Lima shell)
 limactl shell aya-dev
+
+# Connect via SSH (port 2222)
+ssh -p 2222 -i ~/.lima/_config/user $USER@127.0.0.1
 
 # Stop the VM
 limactl stop aya-dev
-
-# Get SSH connection details
-limactl show-ssh aya-dev
-limactl show-ssh --format=config aya-dev
 
 # Check VM status
 limactl list

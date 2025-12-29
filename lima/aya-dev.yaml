@@ -21,7 +21,7 @@ images:
 
 # SSH configuration
 ssh:
-  localPort: 0  # Automatically assign a free port
+  localPort: 2222  # Fixed port for easy SSH access
   loadDotSSHPubKeys: true  # Load ~/.ssh/*.pub keys for authentication
   forwardAgent: true  # Forward SSH agent for git operations
 
@@ -125,8 +125,8 @@ message: |
   To connect via SSH:
     limactl shell aya-dev
 
-  Or use SSH directly:
-    ssh -F ~/.lima/aya-dev/ssh.config lima-aya-dev
+  Or use SSH directly (port 2222):
+    ssh -p 2222 -i ~/.lima/_config/user $USER@127.0.0.1
 
   Your home directory is mounted at the same path inside the VM.
   Project files are accessible without copying.
